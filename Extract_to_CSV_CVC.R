@@ -1,10 +1,12 @@
 library(dplyr)
 
-con=file("ficsgamesdb_201701_CvC.pgn", "r")
+# Read file
+con=file("rawdata/ficsgamesdb_201701_CvC.pgn", "r")
 all_lines = readLines(con)
 close(con)
 all_lines<-all_lines%>%subset(!all_lines=="")
 
+# Store file inputs in lists
 res = list()
 for(this_line in all_lines)
 {
@@ -24,16 +26,37 @@ for(this_line in all_lines)
     }
 }
 
-
 # Turn list into dataframe - Solution 3 without additional package
-try3<-sapply(res, '[', seq(max(sapply(res, length))))
-game17<-as.data.frame(try3)
+res_df<-sapply(res, '[', seq(max(sapply(res, length))))
+chess1701_CVC<-as.data.frame(res_df)
 
-chess1701_CVC<-game17%>%select(-whiteiscomp,-blackiscomp,-ficsgamesdbgameno,-site)%>%
-  rename(moves=move_list)
+# Add additional columns
+game <- vector(,3287)
+for(i in 1:length(game)){
+	game[i] = str_c(chess1701_CVC$white[i],chess1701_CVC$black[i],sep = " vs ")
+}
+chess1701_CVC$Game <- game
+
+winner <- vector(,3287)
+for (i in 1:length(winner)){
+	if(chess1701_CVC$result[i] == "0-1"){
+		winner[i] <- "Black"
+	} 
+	else if(chess1701_CVC$result[i] =="1-0"){
+		winner[i] <- "White"
+	} 
+	else if(chess1701_CVC$result[i] =="1/2-1/2"){
+		winner[i] <- "Draw"
+	}
+}
+chess1701_CVC$Winner <- winner
+
+# Keep the relevant columns
+chess1701_CVC<-chess1701_CVC%>%select(-whiteiscomp,-blackiscomp,-ficsgamesdbgameno,-site)%>%
+	select(Game, White=white, Black=black, Winner, ECO=eco, Moves=move_list)
 
 # Extract to .csv file
-write.csv(chess1701_CVC,"1701_CVC.csv")
+write.csv(chess1701_CVC,"1701_CVC.csv",row.names = F)
 
 
 

@@ -18,6 +18,8 @@ dfchess_parallel <- adply(chess1701, .margins = 1,function(x){
 	chss$history_detail()
 }, .parallel = T, .inform = T)
 
+stopCluster(cl)
+
 dfchess<-tbl_df(dfchess_parallel) %>% select(-moves)
 
 # ----------------------------------------------------
@@ -71,7 +73,7 @@ dfsurvrates <- dfsurvrates %>%
 dfboard2 <- data_frame(x = 0:8 + 0.5, y = 0 + 0.5, xend = 0:8 + 0.5, yend = 8 + 0.5)
 
 # color palette
-pubu <- RColorBrewer::brewer.pal(9, "PuBu")
+mycolor1 <- RColorBrewer::brewer.pal(9, "PuBu")
 
 # Survival Rate Plot
 survival_plot<-ggplot(dfsurvrates) +

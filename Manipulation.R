@@ -89,7 +89,10 @@ p2<-ggplot(HVC%>%filter(players %in% top_players,winorlose=="lose"))+
   coord_flip()
 
 require(grid)
+png(filename = "p1_p2_plot.png",width = 1200, height = 1200, pointsize =12, bg = "white", res = NA, restoreConsole = TRUE)
 multiplot(p1,p2)
+dev.off()
+
 
 # Create a copy of HVC_1701 
 HVC<-HVC_1701
@@ -164,7 +167,9 @@ p4<-ggplot(turncount_black,aes(x=turn_count,y=win,color=players))+
   theme_few(base_size = 15, base_family = "mono")+
   theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
 
+png(filename = "p3_p4_plot.png",width = 1200, height = 1200, pointsize =12, bg = "white", res = NA, restoreConsole = TRUE)
 multiplot(p3,p4)
+dev.off()
 		
 # Distribution of turn count vs distince eco count
 p5<-ggplot(turncount_white,aes(x=eco,y=win,color=players))+
@@ -185,7 +190,9 @@ p6<-ggplot(turncount_black,aes(x=eco,y=win,color=players))+
   theme_few(base_size = 15, base_family = "mono")+
   theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
 
+png(filename = "p5_p6_plot.png",width = 1200, height = 1200, pointsize =12, bg = "white", res = NA, restoreConsole = TRUE)
 multiplot(p5,p6)
+dev.off()
 
 # win count vs eco
 ggplot(turncount_white,aes(x=eco,y=win,color=players))+
@@ -222,7 +229,9 @@ p8<-turn_count_df[turn_count_df$comp=="black",]%>%
   ggtitle("Most Common Openings among Most Active Players, played by All Players")+
   theme_minimal()
 
+png(filename = "p7_p8_plot.png",width = 1200, height = 1200, pointsize =12, bg = "white", res = NA, restoreConsole = TRUE)
 multiplot(p7,p8)
+dev.off()
 
 # Most common openings by top players
 head(sort(table(turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]$eco),decreasing = T),5)
@@ -247,7 +256,9 @@ p10 <- turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp==
   ggtitle("Most Common Openings among Most Active Players, played by Most Active Players")+
   theme_minimal()
 
+png(filename = "p9_p10_plot.png",width = 1200, height = 1200, pointsize =12, bg = "white", res = NA, restoreConsole = TRUE)
 multiplot(p9,p10)
+dev.off()
 	
 # This helps us answering the question "which common chess opening choices are considered to be 'toxic'?"
 

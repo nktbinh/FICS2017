@@ -1,9 +1,18 @@
 library(tidyr)
 library(readr)
 library(ggplot2)
+library(ggthemes)
 library(stringr)
+library(forcats)
 library(reshape2)
-
+library(pander)
+library(rchess)
+library(plyr)
+library(dplyr)
+library(RColorBrewer)
+library(foreach)
+library(doSNOW)
+source("common.R")
 
 # Create directories for outputs
 dir.create("rawdata", FALSE, TRUE)
@@ -12,58 +21,79 @@ dir.create("figures", FALSE, TRUE)
 dir.create("tables", FALSE, TRUE)
 
 # Read the inputs
-CVC_1701 <- data.frame(read_csv("1701_CvC.csv"), check.names = FALSE)
-HVC_1701 <- data.frame(read_csv("1701_HVC.csv"), check.names = FALSE)
+CVC_1701 <- data.frame(read_csv("CVC_1701.csv"), check.names = FALSE)
+HVC_1701 <- data.frame(read_csv("HVC_1701.csv"), check.names = FALSE)
 
 # Sanity check that import and conversion was ok
 dim(CVC_1701)
 dim(HVC_1701)
 
-# Convert to factors
-CVC_1701$winner<-as.factor(CVC_1701$winner)
-HVC_1701$winner<-as.factor(HVC_1701$winner)
-HVC_1701$comp<-as.factor(HVC_1701$comp)
+# General summary of players' stats
+players_stat<-HVC_1701 %>% group_by(players) %>%
+  summarize(games_played=n(),win=sum(winorlose=="win"),draw=sum(winorlose=="draw"),lose=sum(winorlose=="lose")) %>%
+  arrange(desc(games_played)) %>% 
+  mutate(win_rate=win/games_played) %>%
+  mutate(win_rate_overallwin=win/sum(HVC_1701$winorlose=="win"))
 
-# -----------------------------------------------
-# Overall Distribution of the dataset
-# Number of forfeits by disconnection
-forfeit_HVC<-HVC_1701%>%filter(grepl("forfeits by disconnection",moves))
+# Top 5 most active players
+players_stat_top <- as.data.frame(head(players_stat,5))
+pandoc.table(players_stat_top, style = "simple")
 
-# Number of move before forfeiting by disconnection
-forfeit_count<-adply(forfeit_HVC, .margin = 1, function(x) {
-	forfeit<-str_split(x$moves, "forfeits by disconnection")
-	forfeit_n<-str_count(forfeit,"\\d\\.{1,}")
-}, .parallel=T, .inform=T)
+# Top active players' names
+top_players<-as.character(players_stat_top$players)
+# Least active players' names
+bottom_players<-as.character(players_stat$players[642:651])
 
+players_stat_top2<-players_stat_top %>% select(players,win,draw,lose)
+players_stat_top2<-melt(players_stat_top2,vars = players)
 
-forfeit_count<-vector() # For loop solution
-for(i in 1:nrow(forfeit_HVC)){
-	forfeit<-str_split(forfeit_HVC$moves[i], "forfeits by disconnection")
-	forfeit_count[i]<-str_count(forfeit,"\\d\\.{1,}")
-}
+players_stat_top2_plot<-ggplot(players_stat_top2, aes(x = fct_reorder2(players, variable, value), y = value, fill = variable)) + 
+  geom_col() + 
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Total # of matches")+
+  xlab("Top Players")+
+  labs(fill="Result Types")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(panel.grid = element_line(colour = "grey75", size = .25))+
+  coord_flip()
 
-# Distribution of forfeiting by disconnection (percentage of human vs computer)
-firstforfeit<-str_split(forfeit_HVC$moves[1], "forfeits by disconnection")
+ggsave("players_stat_top2_plot.png",players_stat_top2_plot, device = "png" , width = 14, height = 12)
 
-identify_forfeit<-adply(forfeit_HVC,.margin=1,function(x){
-	forfeit<-str_split(x$moves, "forfeits by disconnection")
-	if (str_detect(forfeit, "\\{White")==TRUE){
-		forfeit_HVC$forfeit_player<-"White"
-	} else if (str_detect(forfeit, "\\{Black")==TRUE){
-		forfeit_HVC$forfeit_player<-"Black"
-	}
-})
+# Same plot but result types are stacked side-by-side bars
+ggplot(players_stat_top2, aes(x=fct_reorder2(players,variable,value),fill=variable, y = value))+
+  geom_col(position="dodge")+
+  scale_fill_brewer(type = "div", palette="Set1")+
+  ylab("Total # of matches")+
+  xlab("Top Players")+
+  labs(fill="Result Types")+
+  theme_minimal()+
+  coord_flip()
 
-table(forfeit_HVC$forfeit_player)
-ggplot(forfeit_HVC) + geom_bar(aes(x=forfeit_player),position="identity")
+# Distribution of wins by colors of top players
+p1<-ggplot(HVC%>%filter(players %in% top_players,winorlose=="win"))+
+  geom_bar(aes(x=fct_reorder(players,games_played),fill=winner),position="dodge")+
+  scale_fill_brewer(palette="Dark2",direction=1)+
+  ylab("Total # of wins")+
+  xlab("Top Players")+
+  labs(fill="Black or White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  coord_flip()
 
-forfeit_player<-data.frame(White=0,Black=0)
-for (i in 1:nrow(forfeit_HVC)){ # For loop solution
-	forfeit<-str_split(forfeit_HVC$moves[i], "forfeits by disconnection")
-	ifelse(str_detect(forfeit, "\\{White")==TRUE, forfeit_player$White<-forfeit_player$White+1,
-				 forfeit_player$Black<-forfeit_player$Black+1)
-}
+p2<-ggplot(HVC%>%filter(players %in% top_players,winorlose=="lose"))+
+  geom_bar(aes(x=fct_reorder(players,games_played),fill=winner),position="dodge")+
+  scale_fill_brewer(palette="Paired",direction = -1)+
+  ylab("Total # of losses")+
+  xlab("Top Players")+
+  labs(fill="Black or White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  coord_flip()
 
+require(grid)
+multiplot(p1,p2)
+
+# Create a copy of HVC_1701 
+HVC<-HVC_1701
+HVC<-HVC%>%left_join(players_stat,by="players")
 
 # On average does color make a difference in a player's chance of winning
 
@@ -75,39 +105,149 @@ for (i in 1:nrow(forfeit_HVC)){ # For loop solution
 
 # What are the most common opening (ECO: Encyclopedia of Chess Openings)
 
-# ----------------------------------------------------------------------
-# We take a look at top human players
-Players<-vector()
-for (i in 1:nrow(HVC_1701)){
-	ifelse(HVC_1701$comp[i]=="white",Players[i]<-HVC_1701$black[i],Players[i]<-HVC_1701$white[i])
-}
+# We take a look at bottom human players
+table(players_stat[players_stat$games_played==1,]$win)
 
-HVC_1701$players<-Players
-winorlose<-vector()
-for (i in 1:nrow(HVC_1701)){
-	if (HVC_1701$winner[i] == "Draw"){
-		winorlose[i] = "draw"
-	} else if (tolower(HVC_1701$winner[i])!=HVC_1701$comp[i]){
-		winorlose[i] = "win"
-	} else if (tolower(HVC_1701$winner[i])==HVC_1701$comp[i]){
-		winorlose[i] = "lose"
-	}
-}
+# ------------------------------------------------------------------
+# Add turn_count column
+turn_count_df<-adply(HVC, .margin = 1, function(x) {
+  str_count(sub("\\{.*", "", x$moves),"\\d\\.{1,}")
+}, .parallel=F, .inform=T)
 
-HVC_1701$winorlose<-winorlose
-topplayers_stat<-HVC_1701%>%group_by(players)%>%
-	summarize(n=n(),win=sum(winorlose=="win"),draw=sum(winorlose=="draw"),lose=sum(winorlose=="lose"))%>%
-	arrange(desc(n))%>%mutate(win_rate=win/n)%>%
-	mutate(win_rate_2=win/sum(HVC_1701$winorlose=="win"))%>%head(5)
+turn_count_df<-turn_count_df%>%rename(turn_count=V1)
+turn_count_df<-na.omit(turn_count_df)
 
-# We test the correlation between winning/losing and playing as white/black for these players
-top_players<-topplayers_stat$players
+# Summary statistic grouped by players
+turncount_stat<-turn_count_df%>%group_by(players)%>%
+  summarize(games_played=n(),win=sum(winorlose=="win"),win_rate=win/games_played,turn_count=round(mean(turn_count,na.rm=T)),eco_count=n_distinct(eco))%>%arrange(desc(turn_count))
 
-mycolor2 <- RColorBrewer::brewer.pal(9, "BrBG") # color palette
+# Players by top turn_count
+pandoc.table(head(as.data.frame(turncount_stat),20), style = "simple")
 
-ggplot())+geom_bar(HVC_1701%>%filter(players %in% top_players,aes())
+# Summary statistic when human plays white (go first)
+turncount_white<-turn_count_df[turn_count_df$comp=="black",] %>% 
+  group_by(players)%>%
+  summarize(games_played=n(),win=sum(winorlose=="win"),win_rate=win/games_played,turn_count=round(mean(turn_count,na.rm=T)),eco=n_distinct(eco)) %>%
+  arrange(desc(games_played))
 
+# Computer plays white
+turncount_black<-turn_count_df[turn_count_df$comp=="white",] %>% 
+  group_by(players) %>%
+  summarize(games_played=n(),win=sum(winorlose=="win"),win_rate=win/games_played,turn_count=round(mean(turn_count,na.rm=T)),eco=n_distinct(eco)) %>%
+  arrange(desc(games_played))
 
+t1<-head(turncount_white,10)
+t2<-head(turncount_black,10)
 
+require(gridExtra)
+grid.arrange(
+  tableGrob(t1, theme = ttheme_default()),
+  tableGrob(t2, theme = ttheme_default())
+)
 
+# Distributin of turn count vs win count
+p3<-ggplot(turncount_white,aes(x=turn_count,y=win,color=players))+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 45))+
+  ylab("Win Count")+
+  xlab("Turn Count")+
+  ggtitle("Number of win vs Number of turns, Human White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+p4<-ggplot(turncount_black,aes(x=turn_count,y=win,color=players))+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 40))+
+  ylab("Win Count")+
+  xlab("Turn Count")+
+  ggtitle("Number of win vs Number of turns, Computer White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+multiplot(p3,p4)
+		
+# Distribution of turn count vs distince eco count
+p5<-ggplot(turncount_white,aes(x=eco,y=win,color=players))+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 45))+
+  ylab("Win Count")+
+  xlab("Unique Opening Count")+
+  ggtitle("Number of win vs Number of unique opening counts, Human White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+p6<-ggplot(turncount_black,aes(x=eco,y=win,color=players))+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 40))+
+  ylab("Win Count")+
+  xlab("Unique Opening Count")+
+  ggtitle("Number of win vs Number of unique opening counts, Computer White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+multiplot(p5,p6)
+
+# win count vs eco
+ggplot(turncount_white,aes(x=eco,y=win,color=players))+
+	geom_point()+
+	coord_cartesian(ylim = c(0, 60))+
+	ylab("Win Count")+
+	xlab("Turn Count")+
+	labs(fill="Result Types")+
+	theme_minimal()+
+	theme(legend.position = "none")
+
+# Most common openings
+head(sort(table(turn_count_df[turn_count_df$comp=="white",]$eco),decreasing = T),5) # by computer
+
+head(sort(table(turn_count_df[turn_count_df$comp=="black",]$eco),decreasing = T),5) # by human
+
+p7<-turn_count_df[turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("A00","A45","D00","C00","A46"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+  geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among All Players, played by All Players")+
+  theme_minimal()
+
+p8<-turn_count_df[turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("B06","A45","A46","C00","A41"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+  geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among Most Active Players, played by All Players")+
+  theme_minimal()
+
+multiplot(p7,p8)
+
+# Most common openings by top players
+head(sort(table(turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]$eco),decreasing = T),5)
+
+p9 <- turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("A00","A45","D00","C00","A46"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+  geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among All Players, played by Most Active Players")+
+  theme_minimal()
+
+p10 <- turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("B06","A45","A46","C00","A41"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+  geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among Most Active Players, played by Most Active Players")+
+  theme_minimal()
+
+multiplot(p9,p10)
+	
+# This helps us answering the question "which common chess opening choices are considered to be 'toxic'?"
 

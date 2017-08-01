@@ -1,0 +1,16 @@
+# this script only needs to be run once on a machine, to make sure all the
+# required libararies are installed
+install.packages("tidyr")
+install.packages("readr")
+install.packages("ggplot2")
+install.packages("ggthemes")
+install.packages("stringr")
+install.packages("forcats")
+install.packages("reshape2")
+install.packages("pander")
+install.packages("rchess")
+install.packages("plyr")
+install.packages("dplyr")
+install.packages("RColorBrewer")
+install.packages("foreach")
+install.packages("doSNOW")

@@ -13,4 +13,5 @@ createCluster = function(noCores, logfile = "/dev/null", export = NULL, lib = NU
 	registerDoSNOW(cl)
 	return(cl)
 }
-cl = createCluster(6, export = ls(), lib = list("rchess","plyr","foreach","doParallel"))
+
+

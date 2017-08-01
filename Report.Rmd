@@ -1,0 +1,647 @@
+```{r, echo=FALSE}
+my_html_document <- function(template = "svm-latex-ms.tex", ...) {
+  base_format <- rmarkdown::html_document(...)
+
+  template_arg <- which(base_format$pandoc$args == "--template") + 1L
+  base_format$pandoc$args[template_arg] <- template
+
+  base_format
+}
+```
+---
+output:
+  html_document:
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    template: svm-latex-ms.tex
+geometry: margin=1in
+fontfamily: mathpazo
+fontsize: 11pt
+tables: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load Required Packages
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(ggthemes)
+library(stringr)
+library(forcats)
+library(reshape2)
+library(pander)
+library(rchess)
+library(plyr)
+library(dplyr)
+library(RColorBrewer)
+library(foreach)
+library(doSNOW)
+source("common.R")
+
+# Load the data
+HVC_1701 <- data.frame(read_csv("HVC_1701.csv"), check.names = FALSE)
+HVC_1701$winorlose <- as.factor(HVC_1701$winorlose)
+```
+All Human vs. Computer games played on Free Internet Chess Server in January 2017
+============================================
+_Binh Nguyen
+July 2017_
+
+**Note**: All the data and code required to create this report are available on [Github] (https://github.com/nktbinh/FICS2017)
+
+SUMMARY
+------------
+FICS(http://www.freechess.org/) is one of the oldest and largest internet chess servers. The FICS Games Databases provided the games played and relayed on it. The raw data files are [here](http://www.ficsgames.org/download.html). In this project, I explored a small subset of this massive database, namely all the Human vs. Computer games played in January 2017. Original file is in [PGN](https://en.wikipedia.org/wiki/Portable_Game_Notation) format, and contains information for 4970 games played. Since this format is not manipulation or visualization friendly, I performed the data cleaning manually and saved the output in an csv file.
+
+Inspired by [This Project](https://data.world/thule179/2016-internet-chess-games).
+
+## THE DATA
+
+Skip this section if you only care about the analysis. I thought it would be useful to show how I read the troublesome PGN format to retrieve a more managable data frame.
+```{r, warning=FALSE, eval=FALSE, echo=TRUE}
+# Read file
+con=file("rawdata/ficsgamesdb_201701_CvH.pgn", "r")
+all_lines = readLines(con)
+close(con)
+all_lines<-all_lines%>%subset(!all_lines=="")
+
+# Store file inputs in lists
+res = list();
+comp<-vector(,length=4970)
+count<-1
+for(this_line in all_lines)
+{
+  if(grepl("^\\[", this_line, perl=T))
+  {
+    field = sub("\\[(\\w+).+", "\\1", this_line)
+    value = sub("\\[\\w+ \\\"(.+)\\\"\\]", "\\1", this_line)
+    print(field);
+    res[[tolower(field)]] = c(res[[tolower(field)]], value)
+    ifelse(field=="WhiteIsComp",comp[count]<-"white",comp[count]<-"black")
+    ifelse(field=="WhiteIsComp"|field=="BlackIsComp",count<-count+1,count<-count)
+  }else
+  {
+    print(this_line)
+  }
+  if(grepl("^1\\.", this_line, perl=T))
+  {
+    res[["move_list"]] = c(res[["move_list"]], this_line);
+  }
+}
+comp<-comp[1:4970]
+
+# Turn list into dataframe
+res_df<-sapply(res, '[', seq(max(sapply(res, length))))
+HVC_1701<-as.data.frame(res_df)
+
+# Add comp column
+HVC_1701$comp<-comp
+
+# Add winner column
+winner <- vector(,4970)
+for (i in 1:length(winner)){
+  if(HVC_1701$result[i] == "0-1"){
+    winner[i] <- "Black"
+  } 
+  else if(HVC_1701$result[i] =="1-0"){
+    winner[i] <- "White"
+  } 
+  else if(HVC_1701$result[i] =="1/2-1/2"){
+    winner[i] <- "Draw"
+  }
+}
+HVC_1701$winner <- winner
+
+# Keep the relevant columns
+HVC_1701<-HVC_1701%>%select(-whiteiscomp,-blackiscomp,-ficsgamesdbgameno,-site)%>%
+  select(game, white, black, comp, whiteelo, blackelo , eco, result, winner, moves=move_list)
+
+# Convert to factors
+HVC_1701$winner<-as.factor(HVC_1701$winner)
+HVC_1701$comp<-as.factor(HVC_1701$comp)
+
+# Add players & winorlose columns, convert them to factor
+Players<-vector()
+for (i in 1:nrow(HVC_1701)){
+  ifelse(HVC_1701$comp[i]=="white",Players[i]<-HVC_1701$black[i],Players[i]<-HVC_1701$white[i])
+}
+
+HVC_1701$players<-Players
+winorlose<-vector()
+for (i in 1:nrow(HVC_1701)){
+  if (HVC_1701$winner[i] == "Draw"){
+    winorlose[i] = "draw"
+  } else if (tolower(HVC_1701$winner[i])!=HVC_1701$comp[i]){
+    winorlose[i] = "win"
+  } else if (tolower(HVC_1701$winner[i])==HVC_1701$comp[i]){
+    winorlose[i] = "lose"
+  }
+}
+
+HVC_1701$winorlose<-winorlose
+
+# Extract to .csv file
+write.csv(HVC_1701,"HVC_1701.csv",row.names = F)
+```
+
+## OVERALL DISTRIBUTION BY PLAYERS
+
+Let's start with the result distribution by the top 5 most active players
+
+```{r, warning=FALSE}
+# General summary of players' stats
+players_stat<-HVC_1701 %>% group_by(players) %>%
+	summarize(games_played=n(),win=sum(winorlose=="win"),draw=sum(winorlose=="draw"),lose=sum(winorlose=="lose")) %>%
+	arrange(desc(games_played)) %>% 
+  mutate(win_rate=win/games_played) %>%
+	mutate(win_rate_overallwin=win/sum(HVC_1701$winorlose=="win"))
+
+# Top 5 most active players
+players_stat_top <- as.data.frame(head(players_stat,5))
+pandoc.table(players_stat_top, style = "simple")
+
+# Top active players' names
+top_players<-as.character(players_stat_top$players)
+# Least active players' names
+bottom_players<-as.character(players_stat$players[642:651])
+
+players_stat_top2<-players_stat_top %>% select(players,win,draw,lose)
+players_stat_top2<-melt(players_stat_top2,vars = players)
+
+ggplot(players_stat_top2, aes(x = fct_reorder2(players, variable, value), y = value, fill = variable)) + 
+  geom_col() + 
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Total # of matches")+
+	xlab("Top Players")+
+	labs(fill="Result Types")+
+	theme_few(base_size = 15, base_family = "mono")+
+  theme(panel.grid = element_line(colour = "grey75", size = .25))+
+  coord_flip()
+```
+
+We include these information with **HVC_1701**. This results in **HVC** data frame.
+
+```{r, warning = FALSE}
+HVC<-HVC_1701
+HVC<-HVC%>%left_join(players_stat,by="players")
+```
+
+---
+
+First, I want to find out if color makes a difference in a player's chance of winning. Turns out there does not seem to be a strong correlation between the choice to play black or white and number of winning/losing games for top players. 
+
+```{r, warning = FALSE}
+p1<-ggplot(HVC%>%filter(players %in% top_players,winorlose=="win"))+
+	geom_bar(aes(x=fct_reorder(players,games_played),fill=winner),position="dodge")+
+	scale_fill_brewer(palette="Dark2",direction=1)+
+	ylab("Total # of wins")+
+	xlab("Top Players")+
+	labs(fill="Black or White")+
+  theme_few(base_size = 15, base_family = "mono")+
+	coord_flip()
+
+p2<-ggplot(HVC%>%filter(players %in% top_players,winorlose=="lose"))+
+	geom_bar(aes(x=fct_reorder(players,games_played),fill=winner),position="dodge")+
+	scale_fill_brewer(palette="Paired",direction = -1)+
+	ylab("Total # of losses")+
+	xlab("Top Players")+
+	labs(fill="Black or White")+
+  theme_few(base_size = 15, base_family = "mono")+
+	coord_flip()
+
+require(grid)
+multiplot(p1,p2)
+```
+
+---
+
+Next we will take a look at the total turn counts by the time each match finishes.
+
+```{r, warning = FALSE}
+turn_count_df<-adply(HVC, .margin = 1, function(x) {
+	str_count(sub("\\{.*", "", x$moves),"\\d\\.{1,}")
+}, .parallel=F, .inform=T)
+
+turn_count_df<-turn_count_df%>%rename(turn_count=V1)
+turn_count_df<-na.omit(turn_count_df)
+
+turncount_stat<-turn_count_df%>%group_by(players)%>%
+	summarize(games_played=n(),win=sum(winorlose=="win"),win_rate=win/games_played,turn_count=round(mean(turn_count,na.rm=T)),eco_count=n_distinct(eco))%>%arrange(desc(turn_count))
+
+# Players by top turn_count
+pandoc.table(head(as.data.frame(turncount_stat),20), style = "simple")
+```
+
+---
+
+How about the result distribution when Human plays White versus when Computer plays White
+
+```{r, warning=FALSE}
+turncount_white<-turn_count_df[turn_count_df$comp=="black",] %>% 
+  group_by(players)%>%
+  summarize(games_played=n(),win=sum(winorlose=="win"),win_rate=win/games_played,turn_count=round(mean(turn_count,na.rm=T)),eco=n_distinct(eco)) %>%
+  arrange(desc(games_played))
+
+turncount_black<-turn_count_df[turn_count_df$comp=="white",] %>% 
+  group_by(players) %>%
+  summarize(games_played=n(),win=sum(winorlose=="win"),win_rate=win/games_played,turn_count=round(mean(turn_count,na.rm=T)),eco=n_distinct(eco)) %>%
+  arrange(desc(games_played))
+
+t1<-head(turncount_white,10)
+t2<-head(turncount_black,10)
+
+require(gridExtra)
+grid.arrange(
+  tableGrob(t1, theme = ttheme_default()),
+  tableGrob(t2, theme = ttheme_default())
+)
+```
+
+The top table shows a rough result distribution when human players play white while the table below is its counterpart when computer players play white. There's no clear patterns of note as some players have higher winning percentage while others don't.
+
+---
+
+One interesting question to ask is whether or not getting to start first (playing white) will influences a player's chance of winning or the length of the match (number of turns). Each dot in the diagrams below represent a single player.
+
+```{r, warning = FALSE}
+p3<-ggplot(turncount_white,aes(x=turn_count,y=win,color=players))+
+	geom_point()+
+	coord_cartesian(ylim = c(0, 45))+
+	ylab("Win Count")+
+	xlab("Turn Count")+
+  ggtitle("Number of win vs Number of turns, Human White")+
+	theme_few(base_size = 15, base_family = "mono")+
+	theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+p4<-ggplot(turncount_black,aes(x=turn_count,y=win,color=players))+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 40))+
+  ylab("Win Count")+
+  xlab("Turn Count")+
+  ggtitle("Number of win vs Number of turns, Computer White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+multiplot(p3,p4)
+```
+
+Each dot in these graphs represent an individual player. While there is no clear difference, more games tend to last longer when Computer plays White. In additions, it is interesting to point out that moves count averages to about 30 the more games played. We can imply that an average game lasts about 30 turn longs.
+
+---
+
+How about number of unique chess openings? Would selectivity in opening choices lead to more successful games?
+
+```{r, warning = FALSE}
+p5<-ggplot(turncount_white,aes(x=eco,y=win,color=players))+
+	geom_point()+
+	coord_cartesian(ylim = c(0, 45))+
+	ylab("Win Count")+
+	xlab("Unique Opening Count")+
+  ggtitle("Number of win vs Number of unique opening counts, Human White")+
+	theme_few(base_size = 15, base_family = "mono")+
+	theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+p6<-ggplot(turncount_black,aes(x=eco,y=win,color=players))+
+  geom_point()+
+  coord_cartesian(ylim = c(0, 40))+
+  ylab("Win Count")+
+  xlab("Unique Opening Count")+
+  ggtitle("Number of win vs Number of unique opening counts, Computer White")+
+  theme_few(base_size = 15, base_family = "mono")+
+  theme(legend.position = "none", panel.grid = element_line(colour = "grey75", size = .25))
+
+multiplot(p5,p6)
+```
+
+## MOST COMMON CHESS OPENING
+
+The Ecyclopedia of Chess Opening (ECO) catalogues chess opening moves taken from hundreds of thousands of games by masters, from published analysis in the [Chess informant] (https://en.wikipedia.org/wiki/Chess_Informant) since 1966, and then compiled by notable chess players. 
+
+The most common openings by Computer Players in our data set are:
+```{r, warning = FALSE}
+head(sort(table(turn_count_df[turn_count_df$comp=="white",]$eco),decreasing = T),5)
+```
+
+And by Human Players:
+```{r, warning = FALSE}
+head(sort(table(turn_count_df[turn_count_df$comp=="black",]$eco),decreasing = T),5)
+```
+Likewise, most common openings by top active players are:
+
+```{r, warning = FALSE}
+head(sort(table(turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]$eco),decreasing = T),5)
+```
+
+---
+
+At this point I am curious in how do all human players fair playing these 2 sets of common opening, one adopted by all other human players, once by the top active players?
+
+```{r, warning = FALSE}
+p7<-turn_count_df[turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("A00","A45","D00","C00","A46"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+  geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among All Players, played by All Players")+
+	theme_minimal()
+
+p8<-turn_count_df[turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("B06","A45","A46","C00","A41"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+	geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among Most Active Players, played by All Players")+
+	theme_minimal()
+
+multiplot(p7,p8)
+```
+
+Turns out that the most common move among all players **A00** has a terrible winning percentage. Another common opening choice, **D00** also garners more losses than both winnings and draws combined for all players. On the other hand, every players would be much better off adopting openings **A45** and **A46** as they show to improve their winning rate. **C00** is an exception as even though it seems to be favored by top most active players, it does not seem to be a rewarding play in general.
+
+---
+
+On the flip side, how do top players perform with these 2 choices of moves?
+
+```{r, warning = FALSE}
+p9 <- turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("A00","A45","D00","C00","A46"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+	geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among All Players, played by Most Active Players")+
+	theme_minimal()
+
+p10 <- turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]%>%
+  filter(eco %in% c("B06","A45","A46","C00","A41"))%>%
+  ggplot(aes(x=eco,fill=winorlose))+
+	geom_bar(position="dodge")+
+  scale_fill_brewer(type = "div", palette = "Set1") +
+  ylab("Result Count")+
+  xlab("Opening Count")+
+  ggtitle("Most Common Openings among Most Active Players, played by Most Active Players")+
+	theme_minimal()
+
+multiplot(p9,p10)
+```
+
+This plot demonstrates conclusively the terrible effectiveness of **C00**. Common to both the top players and others, this move doesnt seem to improve the winning percentage for either group. **A00** is another frequent opening move by most players but when picked by active players, it yields an overwhelmingly negative outcome. Top players, however, do much better when it comes to other common openings to the mass: **A45**, **A46** and **D00**. Unique openings to active players **A41** and **B06** show to be their favorites for a reason: they yield an overwhelmingly positive out come with little losses and no draw. 
+
+## rchess PACKAGE
+
+All the variables we have utilized thus far in **HVC** and subsequently **turn_count_df** have been useful in our exploratory data analysis. In this section I want to give a short introduction to the package **rchess** made by **Jkunst**. It is a chess move, generation, validator, piece replacement movement and check/checkmate/stalemate detection. All of these functionality are powered by [V8](https://github.com/jeroen/V8) package and [chessjs](https://github.com/jhlywa/chess.js) javascript library.
+
+First of all, there is a fair bit of data sleuthing we have to do to obtain the data frame needed for the following plots. Luckily **rchess** comes with a handful of helper functions that make our work a lot less of an hassle.
+
+```{r, warning = FALSE}
+HVC_small <- turn_count_df %>% mutate(game_id = seq(nrow(.)))
+HVC_small <- HVC_small %>% select(moves, game_id,turn_count)
+cl2 = createCluster(6, export = ls(), lib = list("stringr","plyr"))
+HVC_small<-adply(HVC_small, .margin = 1, function(x) {
+  x$moves<-str_replace(x$moves, "\\{.*$" ,"")
+}, .parallel=T, .inform=T)
+
+stopCluster(cl2)
+
+# Save game_id of top 10 active players into a list and then unlist
+turnlist<-list()
+for (i in 1:length(top_players)){
+  turnlist[[i]]<-turn_count_df %>% mutate(game_id = seq(nrow(.))) %>% filter(players == top_players[i]) %>% .$game_id
+}
+allturns<-unlist(turnlist)
+
+# Select only the game_id which has more than 40 turn counts
+list_id<-vector()
+for(i in 1:length(allturns)){
+  if(HVC_small[HVC_small$game_id==allturns[i],]$turn_count>40){
+  list_id<-append(list_id,allturns[i])
+  }
+}
+
+# Subset chessdata with the list_id
+chessdata<-HVC_small%>%filter(game_id %in% list_id)
+
+# Sample 100 observations
+set.seed(123)
+require(caTools, quietly = TRUE)
+split = sample.split(chessdata$game_id, SplitRatio = 0.25)
+chessdata<-subset(chessdata,split == TRUE)
+```
+
+At this point we have in our hand **chessdata**, a data frame consisting of 109 games sampled from the top 5 most active players with all the commentaries removed from the *moves* variable. This is necessary because the **history_detail()** method for a **Chess** object as defined by the **rchess** package doesnt work well with added commentaries. With that in mind, we apply this function over 109 games mentioned.
+
+
+```{r, warning = FALSE}
+cl3 = createCluster(6, export = ls(), lib = list("foreach","doSNOW","plyr","rchess"))
+chessdata <- adply(chessdata, .margins = 1,function(x){
+	chss <- Chess$new()
+	chss$load_pgn(x$moves)
+	chss$history_detail()
+}, .parallel = T, .inform = T)
+
+stopCluster(cl3)
+
+dfchess<-tbl_df(chessdata) %>% select(-moves,-turn_count,-V1)
+```
+
+The **dfchess** data frame will be the heart of our analysis from this point onward.
+
+### PIECE MOVEMENTS
+First, we combine **dfchess** with board information including in-board coordinates and their cartesian equivalents provided by the nifty helper function chessboardata(). This results in data frame **dfpaths**.
+
+```{r, warning = FALSE}
+dfboard <- rchess:::.chessboarddata() %>%
+	select(cell, col, row, x, y, cc)
+
+dfpaths <- dfchess %>%
+	left_join(dfboard %>% rename(from = cell, x.from = x, y.from = y),
+						by = "from") %>%
+	left_join(dfboard %>% rename(to = cell, x.to = x, y.to = y) %>% select(-cc, -col, -row),
+						by = "to") %>%
+	mutate(x_gt_y = abs(x.to - x.from) > abs(y.to - y.from),
+				 xy_sign = sign((x.to - x.from)*(y.to - y.from)) == 1,
+				 x_gt_y_equal_xy_sign = x_gt_y == xy_sign)
+```
+
+With the in-board coordinates loaded up from *rchess:::.chessboarddata()*, we can now plot the movement of any chess piece in our selected subset of games. We will go ahead and plot White King's movements for example:
+
+```{r, warning = FALSE}
+WhiteKing_plot<-ggplot() +
+	geom_tile(data = dfboard, aes(x, y, fill = cc)) +
+	geom_curve(data = dfpaths %>% filter(piece == "White King", x_gt_y_equal_xy_sign),
+						 aes(x = x.from, y = y.from, xend = x.to, yend = y.to),
+						 position = position_jitter(width = 0.2, height = 0.2),
+						 curvature = 0.50, angle = -45, alpha = 0.2, color = "white", size = 1.05) +
+	geom_curve(data = dfpaths %>% filter(piece == "White King", !x_gt_y_equal_xy_sign),
+						 aes(x = x.from, y = y.from, xend = x.to, yend = y.to),
+						 position = position_jitter(width = 0.2, height = 0.2),
+						 curvature = -0.50, angle = 45, alpha = 0.2, color = "white", size = 1.05) +
+	scale_fill_manual(values =  c("gray10", "gray20")) +
+	ggtitle("White King") +
+	coord_equal()
+
+print(WhiteKing_plot)
+```
+
+Notice the luminosity of the move between e1 and g1 which coincides with castling, a popular defensive chess maneuver.
+
+### SURVIVAL RATES
+We create the data frame **dfsurvival** by grouping **dfchess** by piece and summarising its *captured* status.
+
+```{r, warning = FALSE}
+dfsurvival <- dfchess %>%
+	filter(!is.na(status)) %>%
+	group_by(piece) %>%
+	summarize(games = n(),
+						was_captured = sum(status == "captured")) %>%
+	mutate(surv_rate = 1 - was_captured/games)
+
+dfsurvival %>% arrange(desc(surv_rate)) %>% head()
+```
+
+This validation gives some peace of mind as the kings are never captured. We now go ahead and combine **dfsurvival** with *rchess:::.chesspiecedata()*.
+
+```{r, warning = FALSE}
+dfsurvival <- dfsurvival %>%
+	left_join(rchess:::.chesspiecedata() %>% select(start_position, piece = name, color, unicode), by = "piece") %>%
+	full_join(dfboard %>% rename(start_position = cell), by = "start_position")
+```
+
+With **dfsurvival** in its final form, can finally draw the survival rate plot
+
+```{r, warning = FALSE, fig.width=14, fig.height=12}
+# Auxillary data to plot the board
+dfboard2 <- data_frame(x = 0:8 + 0.5, y = 0 + 0.5, xend = 0:8 + 0.5, yend = 8 + 0.5)
+
+# Define a new color palette
+mycolor1 <- brewer.pal(n = 9, name = "Blues")
+
+# Survival Rate plot
+survival_plot<-ggplot(dfsurvival) +
+	geom_tile(data = dfsurvival %>% filter(!is.na(surv_rate)),
+						aes(x, y, fill = surv_rate)) +
+	scale_fill_gradient(low = mycolor1[9],  high = mycolor1[1]) +
+	geom_text(data = dfsurvival %>% filter(!is.na(surv_rate)),
+						aes(x, y, label = scales::percent(surv_rate)),
+						color = "yellow2", size = 5) +
+	scale_x_continuous(breaks = 1:8, labels = letters[1:8]) +
+	scale_y_continuous(breaks = 1:8, labels = 1:8)  +
+	geom_segment(data = dfboard2, aes(x, y, xend = xend, yend = yend), color = "gray70") +
+	geom_segment(data = dfboard2, aes(y, x, xend = yend, yend = xend), color = "gray70") +
+	ggtitle("Survival Rates for each piece") + 
+	coord_equal() + 
+	theme_minimal() +
+	theme(legend.position = "none")
+
+print(survival_plot)
+```
+
+One can even replace the text with the piece's icon
+
+```{r, warning = FALSE, fig.width=14, fig.height=12}
+survival_plot2 <- ggplot(dfsurvival) +
+	geom_tile(data = dfsurvival %>% filter(!is.na(surv_rate)),
+						aes(x, y, fill = 100*surv_rate)) +
+	scale_fill_gradient(NULL, low = mycolor1[9],  high = mycolor1[1]) +
+	geom_text(data = dfsurvival %>% filter(!is.na(surv_rate)),
+						aes(x, y, label = unicode), size = 11, color = "red2", alpha = 0.7) +
+	scale_x_continuous(breaks = 1:8, labels = letters[1:8]) +
+	scale_y_continuous(breaks = 1:8, labels = 1:8)  +
+	geom_segment(data = dfboard2, aes(x, y, xend = xend, yend = yend), color = "gray70") +
+	geom_segment(data = dfboard2, aes(y, x, xend = yend, yend = xend), color = "gray70") +
+	ggtitle("Survival Rates for each piece") + 
+	coord_equal() +
+	theme_minimal() +
+	theme(legend.position = "right", legend.direction = "vertical")
+
+plot(survival_plot2)
+```
+
+### SQUARE USAGE BY PLAYERS
+
+For each of the five most active players we proceed to obtain the "to" count. We then produce the plot using the wrapper function and name of the player.
+
+```{r, warning = FALSE, fig.width=14, fig.height=12}
+dfchess_players <- ldply(top_players, function(p){ # p <- sample(top_players, size = 1)
+	dfres <- dfchess %>%
+		filter(game_id %in% list_id, !is.na(to)) %>%
+		count(to) %>%
+		mutate(player = p,
+					 p = n/length(list_id))
+	dfres
+})
+
+dfchess_players <- dfchess_players %>%
+	rename(cell = to) %>%
+	left_join(dfboard, by = "cell")
+
+squareusage_plot<-function(id){
+  plot<-ggplot(dfchess_players %>% filter(player == id)) +
+	geom_tile(aes(x, row, fill = p)) +
+	scale_fill_gradient("Movements to every cell\n(normalized by number of games)",
+											low = "white",  high = "darkblue") +
+	geom_text(aes(x, row, label = round(p, 1)), size = 3, color = "red1", alpha = 0.5) +
+	scale_x_continuous(breaks = 1:8, labels = letters[1:8]) +
+	scale_y_continuous(breaks = 1:8, labels = 1:8)  +
+	geom_segment(data = dfboard2, aes(x, y, xend = xend, yend = yend), color = "gray70") +
+	geom_segment(data = dfboard2, aes(y, x, xend = yend, yend = xend), color = "gray70") +
+	coord_equal() +
+	theme_minimal() +
+	theme(legend.position = "bottom")
+print(plot)
+}
+```
+
+So for player *foosballfan* for example, we have the plot
+
+```{r, warning = FALSE}
+squareusage_plot(id = "foosballfan")
+```
+
+Likewise, for the other 2 active players *Geforce*
+
+```{r, warning = FALSE}
+squareusage_plot(id = "Geforce")
+```
+
+And *FedorEmelianenko*
+
+```{r, warning = FALSE}
+squareusage_plot(id = "FedorEmelianenko")
+```
+
+### Distributions for the first movements
+With *rchess:::.chesspiecedata()* we can also obtain the distribution of the first movement for each piece.
+
+```{r, warning = FALSE}
+piece_lvls <- rchess:::.chesspiecedata() %>%
+  mutate(col = str_extract(start_position, "\\w{1}"),
+         row = str_extract(start_position, "\\d{1}")) %>%
+  arrange(desc(row), col) %>%
+  .$name
+
+dfmoves_first_mvm <- dfchess %>%
+  mutate(piece = factor(piece, levels = piece_lvls),
+         number_move_2 = ifelse(number_move %% 2 == 0, number_move/2, (number_move + 1)/2 )) %>%
+  filter(piece_number_move == 1)
+
+firstmove_plot <- ggplot(dfmoves_first_mvm) +
+  geom_density(aes(number_move_2), fill = "#B71C1C", alpha = 0.8, color = NA) +
+  scale_y_continuous(breaks = NULL) +
+  facet_wrap(~piece, nrow = 4, ncol = 8, scales = "free_y")  +
+  xlab("Density") + ylab("Number Move") + 
+  xlim(0, 60) +
+  theme_gray() +
+  theme(panel.background = element_rect(fill = "gray90"))
+
+print(firstmove_plot)
+```
+
+

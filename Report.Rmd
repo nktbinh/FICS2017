@@ -9,7 +9,7 @@ fontsize: 11pt
 tables: yes
 ---
 ```{r, echo=FALSE, include=FALSE}
-my_html_document <- function(template = "svm-latex-ms.tex", ...) {
+my_html_document <- function(template = "html-github.template", ...) {
   base_format <- rmarkdown::html_document(...)
 
   template_arg <- which(base_format$pandoc$args == "--template") + 1L
@@ -263,7 +263,7 @@ The top table shows a rough result distribution when human players play white wh
 
 One interesting question to ask is whether or not getting to start first (playing white) will influences a player's chance of winning or the length of the match (number of turns). Each dot in the diagrams below represent a single player.
 
-```{r, warning = FALSE}
+```{r, warning = FALSE, fig.width=14, fig.height=12}
 p3<-ggplot(turncount_white,aes(x=turn_count,y=win,color=players))+
 	geom_point()+
 	coord_cartesian(ylim = c(0, 45))+
@@ -291,7 +291,7 @@ Each dot in these graphs represent an individual player. While there is no clear
 
 How about number of unique chess openings? Would selectivity in opening choices lead to more successful games?
 
-```{r, warning = FALSE}
+```{r, warning = FALSE, fig.width=14, fig.height=12}
 p5<-ggplot(turncount_white,aes(x=eco,y=win,color=players))+
 	geom_point()+
 	coord_cartesian(ylim = c(0, 45))+
@@ -336,7 +336,7 @@ head(sort(table(turn_count_df[turn_count_df$players %in% top_players&turn_count_
 
 At this point I am curious in how do all human players fair playing these 2 sets of common opening, one adopted by all other human players, once by the top active players?
 
-```{r, warning = FALSE}
+```{r, warning = FALSE, fig.width=14, fig.height=12}
 p7<-turn_count_df[turn_count_df$comp=="black",]%>%
   filter(eco %in% c("A00","A45","D00","C00","A46"))%>%
   ggplot(aes(x=eco,fill=winorlose))+
@@ -366,7 +366,7 @@ Turns out that the most common move among all players **A00** has a terrible win
 
 On the flip side, how do top players perform with these 2 choices of moves?
 
-```{r, warning = FALSE}
+```{r, warning = FALSE, fig.width=14, fig.height=12}
 p9 <- turn_count_df[turn_count_df$players %in% top_players&turn_count_df$comp=="black",]%>%
   filter(eco %in% c("A00","A45","D00","C00","A46"))%>%
   ggplot(aes(x=eco,fill=winorlose))+
@@ -413,6 +413,7 @@ turnlist<-list()
 for (i in 1:length(top_players)){
   turnlist[[i]]<-turn_count_df %>% mutate(game_id = seq(nrow(.))) %>% filter(players == top_players[i]) %>% .$game_id
 }
+names(turnlist)<-c("foosballfan", "Geforce", "FedorEmelianenko", "jadaw", "SAILISP")
 allturns<-unlist(turnlist)
 
 # Select only the game_id which has more than 40 turn counts
@@ -569,7 +570,7 @@ For each of the five most active players we proceed to obtain the "to" count. We
 ```{r, warning = FALSE, fig.width=14, fig.height=12}
 dfchess_players <- ldply(top_players, function(p){ # p <- sample(top_players, size = 1)
 	dfres <- dfchess %>%
-		filter(game_id %in% list_id, !is.na(to)) %>%
+		filter(game_id %in% turnlist[[p]], !is.na(to)) %>%
 		count(to) %>%
 		mutate(player = p,
 					 p = n/length(list_id))

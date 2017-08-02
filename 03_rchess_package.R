@@ -19,6 +19,7 @@ turnlist<-list()
 for (i in 1:length(top_players)){
   turnlist[[i]]<-turn_count_df %>% mutate(game_id = seq(nrow(.))) %>% filter(players == top_players[i]) %>% .$game_id
 }
+names(turnlist)<-c("foosballfan", "Geforce", "FedorEmelianenko", "jadaw", "SAILISP")
 allturns<-unlist(turnlist)
 
 # Select only the game_id which has more than 40 turn counts
@@ -142,10 +143,10 @@ ggsave("survival_plot2.png",survival_plot2, device = "png" , width = 14, height 
 # Square Usage by player
 dfchess_players <- ldply(top_players, function(p){ # p <- sample(top_players, size = 1)
   dfres <- dfchess %>%
-    filter(game_id %in% list_id, !is.na(to)) %>%
+    filter(game_id %in% turnlist[[p]], !is.na(to)) %>%
     count(to) %>%
     mutate(player = p,
-           p = n/length(list_id))
+           usage = n/length(turnlist[[p]]))
   dfres
 })
 
@@ -155,10 +156,10 @@ dfchess_players <- dfchess_players %>%
 
 squareusage_plot<-function(id){
   plot<-ggplot(dfchess_players %>% filter(player == id)) +
-    geom_tile(aes(x, row, fill = p)) +
+    geom_tile(aes(x, row, fill = usage)) +
     scale_fill_gradient("Movements to every cell\n(normalized by number of games)",
                         low = "white",  high = "darkblue") +
-    geom_text(aes(x, row, label = round(p, 1)), size = 3, color = "red1", alpha = 0.5) +
+    geom_text(aes(x, row, label = round(usage, 1)), size = 3, color = "red1", alpha = 0.5) +
     scale_x_continuous(breaks = 1:8, labels = letters[1:8]) +
     scale_y_continuous(breaks = 1:8, labels = 1:8)  +
     geom_segment(data = dfboard2, aes(x, y, xend = xend, yend = yend), color = "gray70") +

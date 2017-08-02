@@ -573,7 +573,7 @@ dfchess_players <- ldply(top_players, function(p){ # p <- sample(top_players, si
 		filter(game_id %in% turnlist[[p]], !is.na(to)) %>%
 		count(to) %>%
 		mutate(player = p,
-					 p = n/length(list_id))
+					 usage = n/length(turnlist[[p]]))
 	dfres
 })
 
@@ -583,10 +583,10 @@ dfchess_players <- dfchess_players %>%
 
 squareusage_plot<-function(id){
   plot<-ggplot(dfchess_players %>% filter(player == id)) +
-	geom_tile(aes(x, row, fill = p)) +
+	geom_tile(aes(x, row, fill = usage)) +
 	scale_fill_gradient("Movements to every cell\n(normalized by number of games)",
 											low = "white",  high = "darkblue") +
-	geom_text(aes(x, row, label = round(p, 1)), size = 3, color = "red1", alpha = 0.5) +
+	geom_text(aes(x, row, label = round(usage, 1)), size = 3, color = "red1", alpha = 0.5) +
 	scale_x_continuous(breaks = 1:8, labels = letters[1:8]) +
 	scale_y_continuous(breaks = 1:8, labels = 1:8)  +
 	geom_segment(data = dfboard2, aes(x, y, xend = xend, yend = yend), color = "gray70") +

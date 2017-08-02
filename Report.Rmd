@@ -1,4 +1,14 @@
-```{r, echo=FALSE}
+---
+output:
+  html_document:
+    keep_tex: true
+    fig_caption: true
+    template: html-github.template
+fontfamily: mathpazo
+fontsize: 11pt
+tables: yes
+---
+```{r, echo=FALSE, include=FALSE}
 my_html_document <- function(template = "svm-latex-ms.tex", ...) {
   base_format <- rmarkdown::html_document(...)
 
@@ -8,18 +18,6 @@ my_html_document <- function(template = "svm-latex-ms.tex", ...) {
   base_format
 }
 ```
----
-output:
-  html_document:
-    keep_tex: true
-    fig_caption: true
-    latex_engine: pdflatex
-    template: svm-latex-ms.tex
-geometry: margin=1in
-fontfamily: mathpazo
-fontsize: 11pt
-tables: yes
----
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)

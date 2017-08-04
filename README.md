@@ -1,6 +1,9 @@
 Chess Analytics - Analysis of games played on Free Internet Chess Game servers.
 ==============================
 
+### Report
+You can download and view in your browser the visual report with written analysis _Report.html_ file. Alternatively the report is available [here](http://rpubs.com/nktbinh214/296498)
+
 #### To replicate/run the analysis:
 - Download the data file: _rawdata/ficsgamesdb_201701_CvH.pgn_
 - Download the 8 required R files: _common.R_, *00_installPackages.R*, *01_PGN_to_CSV.R*, *02_Manipulation.R*, *03_rchess_package.R*

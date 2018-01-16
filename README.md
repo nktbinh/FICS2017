@@ -6,7 +6,7 @@ You can download and view in your browser the visual report with written analysi
 
 #### To replicate/run the analysis:
 - Download the data file: _rawdata/ficsgamesdb_201701_CvH.pgn_
-- Download the 8 required R files: _common.R_, *00_installPackages.R*, *01_PGN_to_CSV.R*, *02_Manipulation.R*, *03_rchess_package.R*
+- Download the 5 required R files: _common.R_, *00_installPackages.R*, *01_PGN_to_CSV.R*, *02_Manipulation.R*, *03_rchess_package.R*
 - Make sure all the above files are in the same directory
 - If this is the first time running the pipeline, you will need to run 00_installPackages.R to install the required R packages
 - Run Makefile.R (ensure the working directory is set to the above directory)
